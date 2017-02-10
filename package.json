@@ -1,0 +1,22 @@
+{
+  "name": "typux-model",
+  "version": "0.0.1",
+  "description": "Validator and Binder for models",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "repository": "git@github.com:emerido/typux-model.git",
+  "author": "Aleksey Shvorak <dr.emerido@gmail.com>",
+  "license": "MIT",
+  "files": [
+    "lib/",
+    "tsd/",
+    "LICENSE",
+    "README.md"
+  ],
+  "dependencies": {
+    "typux": "^0.0.7"
+  },
+  "devDependencies": {
+    "typescript": "^2.1.5"
+  }
+}
