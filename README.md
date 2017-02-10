@@ -27,6 +27,10 @@ export class Post
     @TypeOf(Number)
     public id : number;
     
+    @TypeOf(Number)
+    @Default(100)
+    public order : number;
+    
     @TypeOf(Boolean)
     public favorite : boolean;
     
@@ -35,6 +39,8 @@ export class Post
     
     @ListOf(Comment)
     public comments : Comment[];
+    
+    
     
 }
 
