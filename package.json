@@ -1,7 +1,7 @@
 {
   "name": "typux-model",
   "version": "0.0.1",
-  "description": "Validator and Binder for models",
+  "description": "Useful tools for working with models",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "repository": "git@github.com:emerido/typux-model.git",

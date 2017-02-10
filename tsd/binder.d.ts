@@ -1,6 +1,5 @@
 import { Constructable } from "typux";
-export declare class Binder {
+export declare class Converter {
     private converters;
-    bind<T>(type: Constructable<T>, data: any): T;
-    convert<T>(type: Constructable<T>, value: any): T;
+    convertTo<T>(type: Constructable<T>, data: any): any;
 }

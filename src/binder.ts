@@ -1,7 +1,7 @@
 import {Constructable, metadata} from "typux";
 import {MODEL_DEFAULT, MODEL_DESIGN} from "./attrs";
 
-export class Binder
+export class Converter
 {
 
     private converters : Array<[Constructable<any>, (value: any) => any]> = [
@@ -9,50 +9,65 @@ export class Binder
         [Boolean, value => !!value]
     ];
 
-    public bind<T>(type : Constructable<T>, data : any)
+    public convertTo<T>(type : Constructable<T>, data : any)
     {
-        let info = metadata.getClassInfo(type);
-        let keys = Object.keys(data);
+        // TODO : Compare with data.constructor
+        if (<Function>type === data.constructor) {
+            return data;
+        }
 
-        let props = info.getProperties();
+        let isList = Array.isArray(data);
 
-        const result = new type();
-
-        keys.forEach(key => {
-            let prop = props.find((value, index, obj) => value.name == key);
-            if (prop && prop.hasAttribute(MODEL_DESIGN)) {
-                let design = prop.getAttribute(MODEL_DESIGN);
-                if (design.length == 1) {
-                    result[key] = this.convert(design[0], data[key]);
-                } else if (design[0] === Array) {
-                    if (false === Array.isArray(data[key])) {
-                        throw new Error('Invalid converting');
-                    }
-                    result[key] = data[key].map(x => this.convert(design[1], x))
-                }
-            } else {
-                result[key] = data[key];
-            }
-        });
-
-        props.forEach(prop => {
-           if (prop.hasAttribute(MODEL_DEFAULT)) {
-               if (false === result.hasOwnProperty(prop.name) || result[prop.name] == null) {
-                   result[prop.name] = prop.getAttribute(MODEL_DEFAULT);
-               }
-           }
-        });
-
-        return result;
-    }
-
-    public convert<T>(type : Constructable<T>, value : any) : T
-    {
+        // Scalar type
         let converter = this.converters.find(x => x[0] === type);
         if (converter) {
-            return converter[1].call(null, value);
+            return converter[1].call(null, data);
         }
-        return this.bind(type, value);
+
+        // Custom type
+        let info = metadata.getClassInfo(type);
+        if (info == null) {
+            throw new Error(`Can't find meta information type ${type}`);
+        }
+
+        let props = info.getProperties();
+        let propsKeys = props.map(x => x.name as string);
+
+        const convert = (source : any) => {
+            let fields = Object.keys(source).concat(propsKeys).filter((v, i, a) => a.indexOf(v) === i);
+            let result = new type();
+
+            fields.forEach(name => {
+
+                result[name] = source[name];
+
+                if (propsKeys.indexOf(name) > -1) {
+                    let prop = props.find(x => x.name === name);
+                    // TODO: Simplify work with attributes
+                    if (source[name] == null && prop.hasAttribute(MODEL_DEFAULT)) {
+                        result[name] = prop.getAttribute(MODEL_DEFAULT)
+                    }
+                    if (source[name] != null && prop.hasAttribute(MODEL_DESIGN)) {
+                        let design = prop.getAttribute(MODEL_DESIGN);
+                        if (design[0] === Array) {
+                            console.log(design);
+
+                            if (false === Array.isArray(source[name]))
+                                throw new Error('Invalid data passed');
+                            result[name] = this.convertTo(design[1], source[name]);
+                        } else {
+                            result[name] = this.convertTo(design[0], source[name]);
+                        }
+                    }
+                }
+            });
+
+            return result;
+        };
+
+        return isList
+            ? data.map(convert)
+            : convert(data);
     }
 
 }
