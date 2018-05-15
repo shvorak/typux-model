@@ -1,15 +1,32 @@
 import * as utils from "./utils";
-import {reflect} from "typux";
+import {Constructable, ClassInfo, PropertyInfo, reflect, Func0, Func1, Dictionary} from "typux";
 import {ConverterAttribute, ALIAS, IGNORE} from "./attrs";
 
+
+function createConverterFor(type: ClassInfo) : ConverterConfig  {
+
+
+    const members = type.getProperties()
+        .map(property => {
+
+        });
+
+
+    return {
+        serialize : (source, target, context) => null,
+        deserialize: (source, target, context) => null,
+    }
+}
 
 export class Converter
 {
 
-    private readonly _options: ConverterOptions;
+    public readonly options: ConverterOptions;
+
+    private readonly converters : Dictionary<ConverterConfig> = {};
 
     constructor(options : ConverterOptions) {
-        this._options = options;
+        this.options = options;
     }
 
     public serialize(value : object) : any
@@ -17,55 +34,20 @@ export class Converter
         if (false === utils.isObject(value))
             throw new Error("Value must be object and can't be null or array");
 
-        const type = reflect.getClassInfo(value);
-        const result = {};
-        const context = new ConverterContext(value, this);
-        const resolver = this._options.propertyResolver;
-        const properties = type.getProperties();
+        let type = reflect.getClassInfo(value);
+        if (this.converters.hasOwnProperty(type.token) === false)
+            this.converters[type.token] = createConverterFor(type);
 
-        properties.forEach(property => {
-
-            if (property.hasAttribute(IGNORE))
-                return utils.info(`Property ${property.name} ignored by attribute Ignore`);
-
-            const sourceName = property.name;
-
-            if (false === utils.isString(sourceName) && false === property.hasAttribute(ALIAS))
-                return utils.warning(
-                    "We can't serialize and deserialize " +
-                    "properties based on Symbol"
-                );
-
-            const attributes = property.getAttributes(ConverterAttribute);
-
-            const targetName = property.hasAttribute(ALIAS)
-                ? property.getAttribute(ALIAS)
-                : resolver.getPropertyName(sourceName as string);
-
-            let sourceValue = value[property.name];
-
-            if (property.propertyType != null && false === utils.isEmpty(sourceValue)) {
-                sourceValue = property.propertyType.isList
-                    ? this.serializeCollection(sourceValue)
-                    : this.serialize(sourceValue)
-            }
-
-            const targetValue = attributes.reduce<any>((value, converter) => {
-                return converter.onSerialize(sourceName as string, value, context);
-            }, sourceValue);
-
-            // OPTION: ignoreEmpty. Ignore properties with undefined
-            if (targetValue === undefined && this._options.ignoreEmpty === true)
-                return;
-
-            result[targetName] = targetValue;
-        });
+        let result = this.converters[type.token]
+            .serialize(value, {}, {
+                source: value,
+                options: this.options,
+                converter: this,
+            });
 
         // OPTION: ignoreUnknown. Serialize unknown properties
-        if (this._options.ignoreUnknown !== true)
-            Object.keys(value)
-                .filter(key => properties.every(x => x.name !== key) && false === result.hasOwnProperty(key))
-                .forEach(key => result[resolver.getPropertyName(key)] = value[key]);
+        if (this.options.ignoreUnknown !== true)
+            this.migrateUnknown(value, result);
 
         return result;
     }
@@ -75,20 +57,114 @@ export class Converter
         return items.map(x => this.serialize(x));
     }
 
+    /**
+     * Migrate non existing in ClassInfo properties to target object
+     *
+     * @param source
+     * @param target
+     */
+    private migrateUnknown(source : any, target : any)
+    {
+        Object.keys(source)
+            .map(key => {
+                return {
+                    original: key,
+                    converted: this.options.propertyResolver(key)
+                }
+            })
+            .filter(x => false === target.hasOwnProperty(x.converted))
+            .forEach(x => target[x.converted] = source[x.original]);
+    }
+
 }
 
 
-export class ConverterContext
+export class ClassConverter
 {
 
-    public readonly source: any;
+    private readonly type : ClassInfo;
 
-    public readonly converter: Converter;
+    private readonly props : PropertyInfo[];
 
-    constructor(source: any, converter : Converter) {
-        this.source = source;
-        this.converter = converter;
+    constructor(type : ClassInfo) {
+        this.type = type;
+
+        // Filter properties
+        this.props = this.type.getProperties()
+            .filter(prop => {
+                if (prop.hasAttribute(IGNORE)) {
+                    utils.info(`Property ${prop.name} ignored by attribute Ignore`);
+                    return false;
+                }
+                if (utils.isString(prop.name) === false && prop.hasAttribute(ALIAS) === false) {
+                    utils.warning(
+                        "We can't serialize and deserialize " +
+                        "properties based on Symbol"
+                    );
+                    return false;
+                }
+
+                return true;
+            });
     }
+
+
+    serialize(source : any, target : any, context : ConverterContext) : any {
+        const resolver = context.options.propertyResolver;
+
+        this.props.forEach(property => {
+            const sourceName = property.name as string;
+
+            const targetName = property.hasAttribute(ALIAS)
+                ? property.getAttribute(ALIAS)
+                : resolver(sourceName as string);
+
+            const converters = property.getAttributes(ConverterAttribute)
+                .map(c => value => c.onSerialize(sourceName, value, context));
+
+            // TODO: Optimize
+            if (property.propertyType != null) {
+                converters.unshift(value => {
+                    if (value === undefined)
+                        return value;
+
+                    return property.propertyType.isList
+                        ? context.converter.serializeCollection(value)
+                        : context.converter.serialize(value)
+                });
+            }
+            const sourceValue = source[property.name];
+            const targetValue = converters
+                .reduce((value, converter) => converter(value), sourceValue);
+
+            if (targetValue !== undefined || context.options.ignoreEmpty === true)
+                target[targetName] = targetValue
+        });
+
+        return target;
+    }
+
+}
+
+
+export interface ConverterContext
+{
+
+    readonly source: any;
+
+    readonly target?: any;
+
+    readonly options: ConverterOptions;
+
+    readonly converter: Converter;
+
+}
+
+export interface ConverterConfig {
+
+    serialize : (source : any, target : any, context : ConverterContext) => any
+
+    deserialize : (source : any, target : any, context : ConverterContext) => any
 
 }
 
@@ -101,18 +177,10 @@ export interface ConverterOptions {
     ignoreUnknown? : boolean;
 
     // Serialized property name resolver
-    propertyResolver : PropertyResolver
+    propertyResolver : Func1<string, string>
 
 }
 
-export class PropertyResolver
-{
-
-    getPropertyName(property : string) : string {
-        return property;
-    }
-
-}
 
 /**
  * Contains default converter options
@@ -133,7 +201,7 @@ export class PropertyResolver
  */
 export const defaultOptions = {
     ignoreEmpty: true,
-    propertyResolver: new PropertyResolver()
+    propertyResolver: (name : string) => name
 };
 
 /**
