@@ -1,26 +1,77 @@
-import {Constructable, metadata} from "typux";
+import {Attribute, Constructable, reflect} from "typux";
+import {ConverterContext} from "./index";
 
-export const MODEL_DEFAULT = Symbol('typux.model.default');
+export const ALIAS = Symbol("typux.model.alias");
+export const IGNORE = Symbol("typux.model.ignore");
 
-export function Default(value) : PropertyDecorator
-{
-    return (target, propertyKey) => {
-        metadata.definePropertyAttribute(target, propertyKey, MODEL_DEFAULT, value);
-    }
+export function Alias(alias: string) : PropertyDecorator {
+    return Attribute(ALIAS, alias);
 }
 
-export const MODEL_DESIGN = Symbol('typux.model.design');
-
-export function TypeOf<T>(type : Constructable<T>) : PropertyDecorator
-{
-    return (target, propertyKey) => {
-        metadata.definePropertyAttribute(target, propertyKey, MODEL_DESIGN, [type]);
-    }
+export function Ignore() : PropertyDecorator {
+    return Attribute(IGNORE);
 }
 
-export function ListOf<T>(type : Constructable<T>) : PropertyDecorator
+export function Default(value : any) : PropertyDecorator {
+    return Attribute(new DefaultAttribute(value));
+}
+
+export function DateTime() : PropertyDecorator {
+    return Attribute(new DateTimeAttribute());
+}
+
+export class ConverterAttribute
 {
-    return (target, propertyKey) => {
-        metadata.definePropertyAttribute(target, propertyKey, MODEL_DESIGN, [Array, type]);
+
+    public onSerialize(field : string, value : any, context : ConverterContext)
+    {
+
     }
+
+    public onDeserialize(field : string, value : any, context : ConverterContext)
+    {
+
+    }
+
+}
+
+export class DefaultAttribute extends ConverterAttribute
+{
+
+    private readonly _value: any;
+
+    constructor(value : any) {
+        super();
+        this._value = value;
+    }
+
+    public onDeserialize(field : string, value : any, context : ConverterContext)
+    {
+        if (value === null || value === undefined)
+            return this._value;
+
+        return value;
+    }
+
+}
+
+export class DateTimeAttribute extends ConverterAttribute
+{
+
+    public onSerialize(field : string, value : any, context : ConverterContext)
+    {
+        if (value instanceof Date) {
+            return value.toISOString();
+        }
+        return value;
+    }
+
+    public onDeserialize(field : string, value : any, context : ConverterContext)
+    {
+        if (value != null) {
+            return new Date(value);
+        }
+        return value;
+    }
+
 }
