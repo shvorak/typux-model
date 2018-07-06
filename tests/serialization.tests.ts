@@ -1,6 +1,7 @@
 import {assert, expect} from 'chai';
 import {postFactory} from "./stubs";
 import {converter} from "../src";
+import {describe, it} from "mocha";
 
 describe('Serialization', function() {
 
@@ -24,6 +25,8 @@ describe('Serialization', function() {
 
     it('Serialize single model', () => {
         const result = converter.serialize(simplePost);
+
+        console.log(result);
 
         expect(result).haveOwnProperty('Title').equal("Simple post title");
         expect(result).not.haveOwnProperty('content');

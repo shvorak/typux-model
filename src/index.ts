@@ -1,22 +1,7 @@
 import * as utils from "./utils";
-import {Constructable, ClassInfo, PropertyInfo, reflect, Func0, Func1, Dictionary} from "typux";
+import {ClassInfo, PropertyInfo, reflect, Func1, Dictionary} from "typux";
 import {ConverterAttribute, ALIAS, IGNORE} from "./attrs";
 
-
-function createConverterFor(type: ClassInfo) : ConverterConfig  {
-
-
-    const members = type.getProperties()
-        .map(property => {
-
-        });
-
-
-    return {
-        serialize : (source, target, context) => null,
-        deserialize: (source, target, context) => null,
-    }
-}
 
 export class Converter
 {
@@ -35,19 +20,22 @@ export class Converter
             throw new Error("Value must be object and can't be null or array");
 
         let type = reflect.getClassInfo(value);
-        if (this.converters.hasOwnProperty(type.token) === false)
-            this.converters[type.token] = createConverterFor(type);
+        let token = type.token as any;
 
-        let result = this.converters[type.token]
+        if (this.converters.hasOwnProperty(type.token) === false)
+            this.converters[token] = new ClassConverter(type);
+
+        let result = this.converters[token]
             .serialize(value, {}, {
                 source: value,
                 options: this.options,
                 converter: this,
             });
 
-        // OPTION: ignoreUnknown. Serialize unknown properties
-        if (this.options.ignoreUnknown !== true)
-            this.migrateUnknown(value, result);
+        // OPTION: ignoreMissed. Serialize unknown properties
+        if (this.options.ignoreMissed !== true)
+            // TODO : Implement right behavior
+            // this.migrateUnknown(value, result);
 
         return result;
     }
@@ -79,33 +67,38 @@ export class Converter
 }
 
 
-export class ClassConverter
+export class ClassConverter implements ConverterConfig
 {
 
     private readonly type : ClassInfo;
 
     private readonly props : PropertyInfo[];
 
+    private readonly ignored : PropertyInfo[];
+
     constructor(type : ClassInfo) {
         this.type = type;
 
-        // Filter properties
-        this.props = this.type.getProperties()
+        this.ignored = this.type.getProperties()
             .filter(prop => {
                 if (prop.hasAttribute(IGNORE)) {
-                    utils.info(`Property ${prop.name} ignored by attribute Ignore`);
-                    return false;
+                    utils.info(`Property ${prop.name.toString()} ignored by attribute Ignore`);
+                    return true;
                 }
                 if (utils.isString(prop.name) === false && prop.hasAttribute(ALIAS) === false) {
                     utils.warning(
                         "We can't serialize and deserialize " +
                         "properties based on Symbol"
                     );
-                    return false;
+                    return true;
                 }
 
-                return true;
+                return false;
             });
+
+        // Filter properties
+        this.props = this.type.getProperties()
+            .filter(prop => this.ignored.indexOf(prop) >= 0);
     }
 
 
@@ -115,9 +108,14 @@ export class ClassConverter
         this.props.forEach(property => {
             const sourceName = property.name as string;
 
+            if (context.options.ignoreEmpty == true && source[property.name] == null)
+                return;
+
+            // TODO : Add guard for is readable
+
             const targetName = property.hasAttribute(ALIAS)
                 ? property.getAttribute(ALIAS)
-                : resolver(sourceName as string);
+                : resolver(sourceName);
 
             const converters = property.getAttributes(ConverterAttribute)
                 .map(c => value => c.onSerialize(sourceName, value, context));
@@ -125,7 +123,7 @@ export class ClassConverter
             // TODO: Optimize
             if (property.propertyType != null) {
                 converters.unshift(value => {
-                    if (value === undefined)
+                    if (value == null)
                         return value;
 
                     return property.propertyType.isList
@@ -141,8 +139,16 @@ export class ClassConverter
                 target[targetName] = targetValue
         });
 
+        // if (context.options.ignoreMissed !== true)
+        //     Object.keys(source)
+        //         .filter(name => {
+        //
+        //         });
+
         return target;
     }
+
+    deserialize: (source: any, target: any, context: ConverterContext) => any;
 
 }
 
@@ -174,10 +180,10 @@ export interface ConverterOptions {
     ignoreEmpty? : boolean;
 
     // If true converter will be skip properties without metadata. default false
-    ignoreUnknown? : boolean;
+    ignoreMissed? : boolean;
 
     // Serialized property name resolver
-    propertyResolver : Func1<string, string>
+    propertyResolver : Func1<string | symbol, string>
 
 }
 
@@ -201,6 +207,7 @@ export interface ConverterOptions {
  */
 export const defaultOptions = {
     ignoreEmpty: true,
+    ignoreMissed: false,
     propertyResolver: (name : string) => name
 };
 
